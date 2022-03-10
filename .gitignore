@@ -1,0 +1,68 @@
+# ─── Environment & secrets ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.log
+
+# ─── GIS / Raster Data ────────────────────────────────────────────────────────
+data/rasters/*.tif
+data/rasters/*.tiff
+data/rasters/*.img
+data/rasters/*.hdf
+data/rasters/*.nc
+data/outputs/
+*.geotiff
+*.shp
+*.dbf
+*.shx
+*.prj
+
+# ─── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+frontend/.env
+frontend/.env.local
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+*.override.yml
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Alembic ──────────────────────────────────────────────────────────────────
+alembic/versions/*.pyc
+
+# ─── Celery ───────────────────────────────────────────────────────────────────
+celerybeat-schedule
+celerybeat.pid
