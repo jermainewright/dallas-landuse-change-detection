@@ -1,0 +1,127 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --signal: #00e5cc;
+    --signal-dim: rgba(0, 229, 204, 0.12);
+    --signal-border: rgba(0, 229, 204, 0.2);
+    --urban: #e74c3c;
+    --vegetation: #27ae60;
+    --water: #2980b9;
+    --bare-soil: #e67e22;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #060812;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 229, 204, 0.25);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 229, 204, 0.45);
+  }
+}
+
+@layer components {
+  /* ── Glassmorphism panel ─────────────────────── */
+  .glass-panel {
+    @apply bg-void-800/60 backdrop-blur-md border border-signal-500/10 rounded-xl;
+  }
+
+  /* ── Signal-coloured border glow ─────────────── */
+  .glow-border {
+    box-shadow: 0 0 0 1px var(--signal-border), 0 0 20px rgba(0, 229, 204, 0.06);
+  }
+
+  /* ── Terminal-style label ─────────────────────── */
+  .terminal-label {
+    @apply font-mono text-xs text-signal-500 uppercase tracking-widest;
+  }
+
+  /* ── Metric card ──────────────────────────────── */
+  .metric-card {
+    @apply glass-panel p-5 relative overflow-hidden;
+  }
+  .metric-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--signal), transparent);
+    opacity: 0.4;
+  }
+
+  /* ── Status badge ─────────────────────────────── */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium;
+  }
+  .status-pending {
+    @apply status-badge bg-amber-500/10 text-amber-400 border border-amber-500/20;
+  }
+  .status-running {
+    @apply status-badge bg-signal-500/10 text-signal-400 border border-signal-500/20;
+  }
+  .status-completed {
+    @apply status-badge bg-green-500/10 text-green-400 border border-green-500/20;
+  }
+  .status-failed {
+    @apply status-badge bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  /* ── Button variants ──────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-signal-500 text-void-950
+           font-display font-semibold text-sm transition-all duration-200
+           hover:bg-signal-400 hover:shadow-[0_0_24px_rgba(0,229,204,0.35)]
+           active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-signal-500/20
+           text-sm text-slate-300 font-display transition-all duration-200
+           hover:border-signal-500/50 hover:text-signal-400 hover:bg-signal-500/5
+           active:scale-[0.98];
+  }
+
+  /* ── Input ────────────────────────────────────── */
+  .field-input {
+    @apply w-full bg-void-900 border border-white/8 rounded-lg px-4 py-2.5
+           text-sm text-slate-200 font-mono placeholder:text-muted
+           focus:outline-none focus:border-signal-500/50 focus:ring-1 focus:ring-signal-500/20
+           transition-all duration-200;
+  }
+}
+
+/* ── Map container overrides ──────────────────────── */
+.leaflet-container {
+  background: #060812 !important;
+  font-family: var(--font-mono) !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(6, 8, 18, 0.85) !important;
+  color: #8892a4 !important;
+  font-size: 10px !important;
+}
+
+/* ── Scanline animation overlay ─────────────────── */
+@keyframes scanLine {
+  0% { transform: translateY(-4px); opacity: 0.6; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
