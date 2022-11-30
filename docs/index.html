@@ -1,0 +1,1515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dallas LandScan · Land Use Change Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ─── RESET & BASE ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg-void:       #0e0806;
+  --bg-deep:       #150d09;
+  --bg-mid:        #1e1008;
+  --bg-surface:    #2a1510;
+  --bg-raised:     #361a0f;
+  --border:        rgba(180, 80, 30, 0.18);
+  --border-bright: rgba(220, 100, 40, 0.35);
+  --rust:          #c44b1a;
+  --ember:         #e05e22;
+  --copper:        #b87333;
+  --gold:          #d4963a;
+  --sand:          #c8a97e;
+  --ash:           #8a7060;
+  --pale:          #e8d4c0;
+  --dim:           #6b5040;
+  --urban:         #e05e22;
+  --veg:           #7a9e4a;
+  --water:         #4a7ea0;
+  --soil:          #b87040;
+  --changed:       #d4a03a;
+  --font-display:  'Bebas Neue', sans-serif;
+  --font-data:     'DM Mono', monospace;
+  --font-body:     'Playfair Display', serif;
+}
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg-void);
+  color: var(--pale);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+  cursor: crosshair;
+}
+
+/* ─── SCROLLBAR ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-deep); }
+::-webkit-scrollbar-thumb { background: var(--rust); border-radius: 2px; }
+
+/* ─── NOISE OVERLAY ─────────────────────────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* ─── GRID TEXTURE ──────────────────────────────────────────────────────────── */
+body::after {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  opacity: 0.4;
+}
+
+/* ─── TOPOGRAPHIC LINES (decorative SVG) ───────────────────────────────────── */
+.topo-bg {
+  position: fixed; top: 0; right: -10%; width: 60%; height: 100vh;
+  z-index: 0; pointer-events: none; opacity: 0.04;
+}
+
+/* ─── LAYOUT CONTAINERS ─────────────────────────────────────────────────────── */
+.page-wrap { position: relative; z-index: 1; }
+.section { padding: 80px 0; }
+.container { max-width: 1280px; margin: 0 auto; padding: 0 40px; }
+
+/* ─── HERO ──────────────────────────────────────────────────────────────────── */
+.hero {
+  min-height: 100vh;
+  display: flex; flex-direction: column; justify-content: center;
+  position: relative; overflow: hidden;
+  padding: 80px 40px 60px;
+}
+
+.hero-scanline {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ember), transparent);
+  animation: scanDown 6s linear infinite;
+  opacity: 0.6;
+}
+@keyframes scanDown {
+  0%   { top: 0%; opacity: 0; }
+  5%   { opacity: 0.6; }
+  95%  { opacity: 0.6; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.hero-eyebrow {
+  font-family: var(--font-data);
+  font-size: 11px; letter-spacing: 0.3em;
+  color: var(--copper); text-transform: uppercase;
+  margin-bottom: 20px;
+  display: flex; align-items: center; gap: 12px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 0.2s forwards;
+}
+.hero-eyebrow::before {
+  content: ''; display: block;
+  width: 32px; height: 1px; background: var(--copper);
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(72px, 12vw, 160px);
+  line-height: 0.9;
+  letter-spacing: 0.02em;
+  color: var(--pale);
+  margin-bottom: 8px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 0.4s forwards;
+}
+.hero-title span {
+  display: block;
+  background: linear-gradient(135deg, var(--ember) 0%, var(--gold) 60%, var(--copper) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-sub {
+  font-family: var(--font-data);
+  font-size: 13px; color: var(--ash); line-height: 1.8;
+  max-width: 480px; margin-bottom: 48px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 0.6s forwards;
+}
+
+.hero-cta {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 0.8s forwards;
+}
+.btn {
+  font-family: var(--font-data); font-size: 12px;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 14px 32px; border-radius: 2px;
+  cursor: pointer; text-decoration: none;
+  transition: all 0.25s ease; display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-primary {
+  background: var(--rust); color: var(--pale); border: 1px solid var(--ember);
+}
+.btn-primary:hover {
+  background: var(--ember);
+  box-shadow: 0 0 32px rgba(224, 94, 34, 0.4);
+  transform: translateY(-2px);
+}
+.btn-ghost {
+  background: transparent; color: var(--sand); border: 1px solid var(--border-bright);
+}
+.btn-ghost:hover {
+  background: var(--bg-surface); border-color: var(--copper);
+  transform: translateY(-2px);
+}
+
+/* Hero stats bar */
+.hero-stats {
+  position: absolute; bottom: 48px; right: 48px;
+  display: flex; gap: 32px;
+  opacity: 0; animation: fadeUp 0.8s ease 1.2s forwards;
+}
+.hero-stat-item { text-align: right; }
+.hero-stat-value {
+  font-family: var(--font-display); font-size: 42px;
+  color: var(--ember); line-height: 1;
+}
+.hero-stat-label {
+  font-family: var(--font-data); font-size: 9px;
+  letter-spacing: 0.2em; color: var(--dim); text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* Hero map graphic */
+.hero-map-graphic {
+  position: absolute; right: -40px; top: 50%;
+  transform: translateY(-50%);
+  width: 520px; height: 520px;
+  opacity: 0; animation: fadeIn 1.5s ease 1s forwards;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; } to { opacity: 1; }
+}
+
+/* ─── SECTION HEADERS ───────────────────────────────────────────────────────── */
+.section-eyebrow {
+  font-family: var(--font-data); font-size: 10px;
+  letter-spacing: 0.35em; color: var(--copper);
+  text-transform: uppercase; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-eyebrow::before {
+  content: ''; width: 24px; height: 1px; background: var(--copper);
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 72px);
+  color: var(--pale); line-height: 1;
+  margin-bottom: 16px;
+}
+.section-title em { color: var(--ember); font-style: normal; }
+.section-desc {
+  font-family: var(--font-data); font-size: 12px;
+  color: var(--ash); line-height: 1.8; max-width: 480px;
+}
+
+/* ─── DIVIDER ───────────────────────────────────────────────────────────────── */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-bright), transparent);
+  margin: 0 40px;
+}
+
+/* ─── GLASS PANEL ───────────────────────────────────────────────────────────── */
+.panel {
+  background: linear-gradient(135deg, var(--bg-mid) 0%, var(--bg-surface) 100%);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  position: relative; overflow: hidden;
+}
+.panel::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--rust), transparent);
+  opacity: 0.5;
+}
+
+/* ─── METRICS GRID ──────────────────────────────────────────────────────────── */
+.metrics-section { background: var(--bg-deep); }
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+.metric-cell {
+  background: var(--bg-mid); padding: 36px 32px;
+  position: relative; overflow: hidden;
+  transition: background 0.3s ease;
+}
+.metric-cell:hover { background: var(--bg-surface); }
+.metric-cell::after {
+  content: attr(data-index);
+  position: absolute; bottom: -12px; right: 16px;
+  font-family: var(--font-display); font-size: 80px;
+  color: var(--bg-raised); line-height: 1;
+  pointer-events: none;
+}
+.metric-label {
+  font-family: var(--font-data); font-size: 9px;
+  letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 12px;
+}
+.metric-value {
+  font-family: var(--font-display);
+  font-size: 56px; line-height: 1;
+  color: var(--ember);
+}
+.metric-value .unit {
+  font-size: 24px; color: var(--copper); margin-left: 4px;
+}
+.metric-delta {
+  font-family: var(--font-data); font-size: 11px;
+  margin-top: 8px; display: flex; align-items: center; gap: 6px;
+}
+.delta-up { color: var(--urban); }
+.delta-dn { color: var(--veg); }
+.delta-icon { font-size: 14px; }
+
+/* ─── CHART SECTION ─────────────────────────────────────────────────────────── */
+.chart-section { padding: 80px 0; }
+.chart-layout {
+  display: grid; grid-template-columns: 1fr 400px; gap: 24px;
+  align-items: start;
+}
+
+/* Bar chart */
+.bar-chart-wrap { padding: 40px; }
+.chart-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 40px;
+}
+.chart-legend {
+  display: flex; gap: 20px;
+}
+.legend-item {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-data); font-size: 10px;
+  color: var(--ash); letter-spacing: 0.1em;
+}
+.legend-dot {
+  width: 10px; height: 10px; border-radius: 1px;
+}
+
+.bar-group-row {
+  display: flex; align-items: center; gap: 16px;
+  margin-bottom: 28px;
+}
+.bar-group-label {
+  font-family: var(--font-data); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ash); width: 80px; flex-shrink: 0; text-align: right;
+}
+.bar-group-bars { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.bar-track {
+  height: 22px; background: var(--bg-raised); border-radius: 1px;
+  position: relative; overflow: hidden;
+}
+.bar-fill {
+  height: 100%; border-radius: 1px;
+  position: absolute; left: 0; top: 0;
+  width: 0%;
+  transition: width 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex; align-items: center;
+}
+.bar-fill.t1 { opacity: 0.5; }
+.bar-fill.t2 { }
+.bar-fill-label {
+  font-family: var(--font-data); font-size: 9px;
+  color: rgba(232, 212, 192, 0.9); padding-left: 10px;
+  white-space: nowrap; pointer-events: none;
+}
+.bar-delta {
+  font-family: var(--font-data); font-size: 11px;
+  width: 70px; flex-shrink: 0; text-align: right;
+  font-weight: 500;
+}
+
+/* Side panel */
+.stats-side { display: flex; flex-direction: column; gap: 16px; }
+
+.stat-card { padding: 24px; }
+.stat-card-label {
+  font-family: var(--font-data); font-size: 9px;
+  letter-spacing: 0.25em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 10px;
+}
+.stat-card-value {
+  font-family: var(--font-display); font-size: 38px;
+  line-height: 1; color: var(--pale);
+}
+.stat-card-sub {
+  font-family: var(--font-data); font-size: 10px;
+  color: var(--ash); margin-top: 6px;
+}
+.progress-ring-wrap {
+  display: flex; align-items: center; gap: 20px; margin-top: 16px;
+}
+.ring-label {
+  font-family: var(--font-data); font-size: 10px;
+  color: var(--ash); line-height: 1.6;
+}
+.ring-label strong {
+  display: block; font-family: var(--font-display);
+  font-size: 22px; color: var(--ember);
+}
+
+/* ─── MAP SECTION ───────────────────────────────────────────────────────────── */
+.map-section { background: var(--bg-deep); padding: 80px 0; }
+.map-layout { display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+
+.map-panel { padding: 0; overflow: hidden; min-height: 500px; position: relative; }
+.map-canvas {
+  width: 100%; height: 500px;
+  position: relative; background: var(--bg-surface);
+  overflow: hidden;
+}
+.map-header {
+  position: absolute; top: 0; left: 0; right: 0;
+  padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: linear-gradient(to bottom, var(--bg-void), transparent);
+  z-index: 10;
+}
+.map-title {
+  font-family: var(--font-data); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--copper);
+}
+.map-coords {
+  font-family: var(--font-data); font-size: 9px; color: var(--dim);
+}
+.map-footer {
+  position: absolute; bottom: 0; left: 0; right: 0; padding: 12px 20px;
+  background: linear-gradient(to top, var(--bg-void), transparent);
+  z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.map-scale {
+  font-family: var(--font-data); font-size: 9px; color: var(--dim);
+  display: flex; align-items: center; gap: 8px;
+}
+.scale-bar {
+  width: 48px; height: 3px; background: var(--dim);
+  position: relative;
+}
+.scale-bar::before, .scale-bar::after {
+  content: ''; position: absolute; top: -2px;
+  width: 1px; height: 7px; background: var(--dim);
+}
+.scale-bar::before { left: 0; }
+.scale-bar::after { right: 0; }
+
+/* SVG map dots */
+.map-dot {
+  animation: pulseDot 3s ease-in-out infinite;
+}
+.map-dot-ring {
+  animation: ringPulse 3s ease-in-out infinite;
+}
+@keyframes pulseDot {
+  0%, 100% { r: 4; }
+  50% { r: 5.5; }
+}
+@keyframes ringPulse {
+  0% { r: 6; opacity: 0.8; }
+  100% { r: 18; opacity: 0; }
+}
+
+/* Map legend side */
+.map-legend-panel { padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+.legend-title {
+  font-family: var(--font-display); font-size: 28px; color: var(--pale);
+  line-height: 1; margin-bottom: 4px;
+}
+.legend-sub {
+  font-family: var(--font-data); font-size: 10px; color: var(--ash);
+  line-height: 1.7;
+}
+.class-legend { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.class-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; background: var(--bg-raised);
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease; cursor: default;
+}
+.class-item:hover { background: var(--bg-surface); }
+.class-color { width: 28px; height: 28px; border-radius: 2px; flex-shrink: 0; }
+.class-info { flex: 1; }
+.class-name {
+  font-family: var(--font-data); font-size: 11px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--pale);
+}
+.class-pct {
+  font-family: var(--font-display); font-size: 20px; color: var(--ember);
+}
+.class-area {
+  font-family: var(--font-data); font-size: 9px; color: var(--dim);
+}
+
+/* ─── PIPELINE SECTION ──────────────────────────────────────────────────────── */
+.pipeline-section { padding: 80px 0; }
+.pipeline-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 0; margin-top: 48px;
+  position: relative;
+}
+.pipeline-grid::before {
+  content: '';
+  position: absolute; top: 44px; left: 5%; right: 5%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--rust) 20%, var(--rust) 80%, transparent);
+  z-index: 0;
+}
+.pipeline-step {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 24px 16px; text-align: center;
+  position: relative; z-index: 1;
+  opacity: 0;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  transform: translateY(16px);
+}
+.pipeline-step.visible { opacity: 1; transform: translateY(0); }
+
+.step-index {
+  font-family: var(--font-display); font-size: 11px;
+  color: var(--dim); letter-spacing: 0.1em; margin-bottom: 8px;
+}
+.step-node {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--border-bright);
+  background: var(--bg-surface);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+}
+.pipeline-step:hover .step-node {
+  background: var(--rust); border-color: var(--ember);
+  box-shadow: 0 0 20px rgba(224, 94, 34, 0.4);
+}
+.step-icon { font-size: 18px; }
+.step-title {
+  font-family: var(--font-data); font-size: 11px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--pale); margin-bottom: 8px;
+}
+.step-desc {
+  font-family: var(--font-data); font-size: 10px;
+  color: var(--dim); line-height: 1.6;
+}
+
+/* ─── TRANSITION MATRIX ─────────────────────────────────────────────────────── */
+.matrix-section { background: var(--bg-deep); padding: 80px 0; }
+.matrix-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+.matrix-table-wrap { overflow-x: auto; }
+.matrix-table {
+  width: 100%; border-collapse: collapse;
+  font-family: var(--font-data); font-size: 11px;
+}
+.matrix-table th {
+  padding: 12px 16px; text-align: right;
+  color: var(--dim); font-weight: 400;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  font-size: 9px;
+}
+.matrix-table th:first-child { text-align: left; }
+.matrix-table td {
+  padding: 12px 16px; text-align: right;
+  border-bottom: 1px solid rgba(180, 80, 30, 0.08);
+  color: var(--pale); transition: background 0.2s ease;
+}
+.matrix-table td:first-child {
+  text-align: left; color: var(--ash); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.matrix-table tr:hover td { background: var(--bg-surface); }
+.cell-high { color: var(--ember) !important; font-weight: 500; }
+.cell-diag { color: var(--gold) !important; }
+
+/* Heat cell */
+.heat-cell {
+  display: inline-block;
+  min-width: 52px; padding: 4px 8px; border-radius: 2px;
+  text-align: right;
+}
+
+/* Donut chart */
+.donut-section { display: flex; flex-direction: column; gap: 20px; }
+.donut-wrap { position: relative; width: 200px; height: 200px; margin: 0 auto; }
+.donut-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.donut-pct {
+  font-family: var(--font-display); font-size: 42px; color: var(--ember); line-height: 1;
+}
+.donut-label {
+  font-family: var(--font-data); font-size: 9px; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.15em;
+}
+.donut-svg circle { transition: stroke-dashoffset 1.6s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ─── TECH STACK ────────────────────────────────────────────────────────────── */
+.tech-section { padding: 80px 0; }
+.tech-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  background: var(--border); margin-top: 48px;
+  border: 1px solid var(--border);
+}
+.tech-card {
+  background: var(--bg-mid); padding: 32px 28px;
+  transition: background 0.3s ease;
+}
+.tech-card:hover { background: var(--bg-surface); }
+.tech-card-icon {
+  font-size: 28px; margin-bottom: 16px; display: block;
+}
+.tech-card-name {
+  font-family: var(--font-data); font-size: 12px;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--copper); margin-bottom: 8px;
+}
+.tech-card-desc {
+  font-family: var(--font-data); font-size: 11px;
+  color: var(--dim); line-height: 1.7;
+}
+.tech-tag {
+  display: inline-block; margin-top: 12px;
+  padding: 3px 10px; background: var(--bg-raised);
+  border: 1px solid var(--border-bright);
+  font-family: var(--font-data); font-size: 9px;
+  color: var(--ash); letter-spacing: 0.1em;
+  border-radius: 1px;
+}
+
+/* ─── FOOTER ────────────────────────────────────────────────────────────────── */
+.footer {
+  padding: 48px 40px; background: var(--bg-void);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.footer-brand {
+  font-family: var(--font-display); font-size: 28px; color: var(--ember);
+}
+.footer-meta {
+  font-family: var(--font-data); font-size: 10px;
+  color: var(--dim); line-height: 1.8; text-align: right;
+}
+.footer-links { display: flex; gap: 24px; }
+.footer-link {
+  font-family: var(--font-data); font-size: 10px;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--ash); text-decoration: none;
+  transition: color 0.2s ease;
+}
+.footer-link:hover { color: var(--ember); }
+
+/* ─── COUNTER ANIMATION ─────────────────────────────────────────────────────── */
+.count-up { display: inline-block; }
+
+/* ─── TICKER TAPE ───────────────────────────────────────────────────────────── */
+.ticker {
+  background: var(--bg-surface); border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0; overflow: hidden; white-space: nowrap;
+}
+.ticker-inner {
+  display: inline-block;
+  animation: tickerScroll 28s linear infinite;
+  font-family: var(--font-data); font-size: 10px;
+  letter-spacing: 0.2em; color: var(--dim);
+}
+.ticker-item { display: inline-block; padding: 0 40px; }
+.ticker-item span { color: var(--copper); margin-right: 8px; }
+@keyframes tickerScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ─── RESPONSIVE ────────────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .chart-layout, .map-layout, .matrix-layout { grid-template-columns: 1fr; }
+  .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .pipeline-grid { grid-template-columns: repeat(3, 1fr); }
+  .hero-map-graphic { display: none; }
+  .hero-stats { position: static; margin-top: 48px; justify-content: flex-start; }
+  .tech-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .container { padding: 0 20px; }
+  .metrics-grid { grid-template-columns: 1fr 1fr; }
+  .pipeline-grid { grid-template-columns: repeat(2, 1fr); }
+  .tech-grid { grid-template-columns: 1fr; }
+  .footer { flex-direction: column; gap: 24px; text-align: center; }
+  .footer-meta { text-align: center; }
+  .hero { padding: 100px 20px 80px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Topographic SVG background -->
+<svg class="topo-bg" viewBox="0 0 800 900" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M800 100 Q600 150 400 80 Q200 10 0 120" stroke="#b87333" stroke-width="1" fill="none"/>
+  <path d="M800 200 Q650 230 450 170 Q250 110 0 230" stroke="#b87333" stroke-width="1" fill="none"/>
+  <path d="M800 310 Q580 360 380 290 Q180 220 0 350" stroke="#b87333" stroke-width="1" fill="none"/>
+  <path d="M800 420 Q600 480 400 400 Q200 320 0 440" stroke="#b87333" stroke-width="1" fill="none"/>
+  <path d="M800 530 Q650 580 440 510 Q240 440 0 560" stroke="#b87333" stroke-width="1" fill="none"/>
+  <path d="M800 640 Q580 700 380 620 Q190 540 0 670" stroke="#b87333" stroke-width="1" fill="none"/>
+  <path d="M800 750 Q620 810 410 730 Q210 650 0 770" stroke="#b87333" stroke-width="1" fill="none"/>
+  <path d="M800 860 Q640 910 430 840 Q220 770 0 880" stroke="#b87333" stroke-width="1" fill="none"/>
+  <circle cx="340" cy="380" r="120" stroke="#b87333" stroke-width="0.8" fill="none"/>
+  <circle cx="340" cy="380" r="80" stroke="#b87333" stroke-width="0.6" fill="none"/>
+  <circle cx="340" cy="380" r="40" stroke="#b87333" stroke-width="0.5" fill="none"/>
+  <circle cx="620" cy="200" r="70" stroke="#b87333" stroke-width="0.7" fill="none"/>
+  <circle cx="620" cy="200" r="35" stroke="#b87333" stroke-width="0.5" fill="none"/>
+</svg>
+
+<div class="page-wrap">
+
+  <!-- ════════ HERO ════════ -->
+  <section class="hero">
+    <div class="hero-scanline"></div>
+    <div style="max-width:1280px; margin:0 auto; width:100%; position:relative;">
+      <p class="hero-eyebrow">Dallas · Texas · Geospatial Analysis Platform</p>
+      <h1 class="hero-title">
+        Dallas<br>
+        <span>Land<br>Scan</span>
+      </h1>
+      <p class="hero-sub">
+        Production-grade satellite imagery classification and temporal land use change detection over the Dallas–Fort Worth metroplex. Powered by Landsat 8/9, PostGIS, and Random Forest ML.
+      </p>
+      <div class="hero-cta">
+        <a href="https://github.com/jermainewright/dallas-landuse-change-detection" class="btn btn-primary" target="_blank" rel="noopener">
+          ↗ View on GitHub
+        </a>
+        <a href="#pipeline" class="btn btn-ghost">Explore Pipeline →</a>
+      </div>
+
+      <!-- Stats float bottom-right -->
+      <div class="hero-stats">
+        <div class="hero-stat-item">
+          <div class="hero-stat-value"><span class="count-up" data-target="400">0</span></div>
+          <div class="hero-stat-label">km² change detected</div>
+        </div>
+        <div class="hero-stat-item">
+          <div class="hero-stat-value"><span class="count-up" data-target="30">0</span>m</div>
+          <div class="hero-stat-label">raster resolution</div>
+        </div>
+        <div class="hero-stat-item">
+          <div class="hero-stat-value"><span class="count-up" data-target="102">0</span>s</div>
+          <div class="hero-stat-label">avg. pipeline time</div>
+        </div>
+      </div>
+
+      <!-- Map graphic -->
+      <svg class="hero-map-graphic" viewBox="0 0 520 520" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- Grid -->
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#b87333" stroke-width="0.4" opacity="0.3"/>
+          </pattern>
+        </defs>
+        <rect width="520" height="520" fill="url(#grid)"/>
+        <!-- AOI outline -->
+        <rect x="60" y="60" width="400" height="400" stroke="#c44b1a" stroke-width="1" fill="none" stroke-dasharray="8 4" opacity="0.6"/>
+        <!-- Land use blobs -->
+        <ellipse cx="200" cy="200" rx="110" ry="90" fill="#e05e22" opacity="0.12"/>
+        <ellipse cx="330" cy="310" rx="90" ry="70" fill="#7a9e4a" opacity="0.15"/>
+        <path d="M 140 320 Q 180 260 220 310 Q 260 360 300 320 Q 340 280 380 300" stroke="#4a7ea0" stroke-width="8" fill="none" stroke-linecap="round" opacity="0.4"/>
+        <ellipse cx="360" cy="180" rx="55" ry="45" fill="#b87040" opacity="0.12"/>
+        <!-- Changed pixels scatter -->
+        <circle cx="190" cy="160" r="3" fill="#d4a03a" opacity="0.8"/>
+        <circle cx="240" cy="200" r="2" fill="#d4a03a" opacity="0.6"/>
+        <circle cx="290" cy="175" r="4" fill="#d4a03a" opacity="0.7"/>
+        <circle cx="155" cy="240" r="2.5" fill="#d4a03a" opacity="0.5"/>
+        <circle cx="340" cy="230" r="3" fill="#d4a03a" opacity="0.8"/>
+        <!-- Crosshair -->
+        <line x1="260" y1="240" x2="260" y2="280" stroke="#e05e22" stroke-width="1" opacity="0.5"/>
+        <line x1="240" y1="260" x2="280" y2="260" stroke="#e05e22" stroke-width="1" opacity="0.5"/>
+        <circle cx="260" cy="260" r="8" stroke="#e05e22" stroke-width="1" fill="none" opacity="0.6"/>
+        <!-- Coordinate labels -->
+        <text x="62" y="52" fill="#6b5040" font-family="DM Mono, monospace" font-size="9">32.60°N 97.00°W</text>
+        <text x="320" y="475" fill="#6b5040" font-family="DM Mono, monospace" font-size="9">33.00°N 96.50°W</text>
+        <!-- N arrow -->
+        <text x="472" y="96" fill="#b87333" font-family="DM Mono, monospace" font-size="10">N</text>
+        <line x1="476" y1="100" x2="476" y2="124" stroke="#b87333" stroke-width="1.5"/>
+        <path d="M 471 105 L 476 98 L 481 105" fill="#b87333"/>
+        <!-- Pulse dot -->
+        <circle class="map-dot-ring" cx="260" cy="260" r="6" fill="none" stroke="#e05e22" stroke-width="1.5"/>
+        <circle class="map-dot" cx="260" cy="260" r="4" fill="#e05e22"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ════════ TICKER ════════ -->
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-inner">
+      <span class="ticker-item"><span>URBAN</span>+18.4 km² · 2015–2023</span>
+      <span class="ticker-item"><span>VEGETATION</span>-12.7 km² · LOSS</span>
+      <span class="ticker-item"><span>WATER</span>+0.3 km² · STABLE</span>
+      <span class="ticker-item"><span>BARE SOIL</span>-5.9 km² · CONVERTED</span>
+      <span class="ticker-item"><span>TOTAL CHANGE</span>23.8% of AOI</span>
+      <span class="ticker-item"><span>EPSG</span>32614 · UTM Zone 14N</span>
+      <span class="ticker-item"><span>RESOLUTION</span>30m Landsat 8/9</span>
+      <span class="ticker-item"><span>PIPELINE</span>102s avg. processing</span>
+      <span class="ticker-item"><span>URBAN</span>+18.4 km² · 2015–2023</span>
+      <span class="ticker-item"><span>VEGETATION</span>-12.7 km² · LOSS</span>
+      <span class="ticker-item"><span>WATER</span>+0.3 km² · STABLE</span>
+      <span class="ticker-item"><span>BARE SOIL</span>-5.9 km² · CONVERTED</span>
+      <span class="ticker-item"><span>TOTAL CHANGE</span>23.8% of AOI</span>
+      <span class="ticker-item"><span>EPSG</span>32614 · UTM Zone 14N</span>
+      <span class="ticker-item"><span>RESOLUTION</span>30m Landsat 8/9</span>
+      <span class="ticker-item"><span>PIPELINE</span>102s avg. processing</span>
+    </div>
+  </div>
+
+  <!-- ════════ METRICS ════════ -->
+  <section class="metrics-section section">
+    <div class="container">
+      <div class="metrics-grid">
+        <div class="metric-cell" data-index="01">
+          <div class="metric-label">Urban Area Growth</div>
+          <div class="metric-value"><span class="count-up" data-target="18">0</span><span class="unit">km²</span></div>
+          <div class="metric-delta delta-up"><span class="delta-icon">▲</span> +24.1% since 2015</div>
+        </div>
+        <div class="metric-cell" data-index="02">
+          <div class="metric-label">Vegetation Loss</div>
+          <div class="metric-value"><span class="count-up" data-target="12">0</span><span class="unit">km²</span></div>
+          <div class="metric-delta delta-dn"><span class="delta-icon">▼</span> -18.6% since 2015</div>
+        </div>
+        <div class="metric-cell" data-index="03">
+          <div class="metric-label">AOI Changed</div>
+          <div class="metric-value"><span class="count-up" data-target="23">0</span><span class="unit">%</span></div>
+          <div class="metric-delta delta-up"><span class="delta-icon">▲</span> 8-year delta</div>
+        </div>
+        <div class="metric-cell" data-index="04">
+          <div class="metric-label">Pipeline Runtime</div>
+          <div class="metric-value"><span class="count-up" data-target="102">0</span><span class="unit">s</span></div>
+          <div class="metric-delta" style="color: var(--gold)"><span class="delta-icon">◆</span> 4-core worker</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ════════ BAR CHART ════════ -->
+  <section class="chart-section">
+    <div class="container">
+      <div class="chart-layout">
+        <div class="panel bar-chart-wrap">
+          <div class="chart-header">
+            <div>
+              <div class="section-eyebrow">Land Use Distribution</div>
+              <div class="section-title" style="font-size: clamp(28px,4vw,48px);">Area <em>Comparison</em></div>
+            </div>
+            <div class="chart-legend">
+              <div class="legend-item">
+                <div class="legend-dot" style="background: var(--ash);"></div>
+                2015 (T1)
+              </div>
+              <div class="legend-item">
+                <div class="legend-dot" style="background: var(--ember);"></div>
+                2023 (T2)
+              </div>
+            </div>
+          </div>
+
+          <!-- Urban -->
+          <div class="bar-group-row">
+            <div class="bar-group-label">Urban</div>
+            <div class="bar-group-bars">
+              <div class="bar-track">
+                <div class="bar-fill t1" style="background: var(--urban);" data-width="51">
+                  <span class="bar-fill-label">76.2 km²</span>
+                </div>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill t2" style="background: var(--urban);" data-width="63">
+                  <span class="bar-fill-label">94.6 km²</span>
+                </div>
+              </div>
+            </div>
+            <div class="bar-delta delta-up">+18.4</div>
+          </div>
+
+          <!-- Vegetation -->
+          <div class="bar-group-row">
+            <div class="bar-group-label">Vegetation</div>
+            <div class="bar-group-bars">
+              <div class="bar-track">
+                <div class="bar-fill t1" style="background: var(--veg);" data-width="46">
+                  <span class="bar-fill-label">68.4 km²</span>
+                </div>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill t2" style="background: var(--veg);" data-width="37">
+                  <span class="bar-fill-label">55.7 km²</span>
+                </div>
+              </div>
+            </div>
+            <div class="bar-delta delta-dn">-12.7</div>
+          </div>
+
+          <!-- Water -->
+          <div class="bar-group-row">
+            <div class="bar-group-label">Water</div>
+            <div class="bar-group-bars">
+              <div class="bar-track">
+                <div class="bar-fill t1" style="background: var(--water);" data-width="14">
+                  <span class="bar-fill-label">20.8 km²</span>
+                </div>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill t2" style="background: var(--water);" data-width="15">
+                  <span class="bar-fill-label">21.1 km²</span>
+                </div>
+              </div>
+            </div>
+            <div class="bar-delta" style="color: var(--gold);">+0.3</div>
+          </div>
+
+          <!-- Bare Soil -->
+          <div class="bar-group-row">
+            <div class="bar-group-label">Bare Soil</div>
+            <div class="bar-group-bars">
+              <div class="bar-track">
+                <div class="bar-fill t1" style="background: var(--soil);" data-width="28">
+                  <span class="bar-fill-label">41.6 km²</span>
+                </div>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill t2" style="background: var(--soil);" data-width="20">
+                  <span class="bar-fill-label">35.7 km²</span>
+                </div>
+              </div>
+            </div>
+            <div class="bar-delta delta-dn">-5.9</div>
+          </div>
+        </div>
+
+        <!-- Side stats -->
+        <div class="stats-side">
+          <div class="panel stat-card">
+            <div class="stat-card-label">Total Analysed Area</div>
+            <div class="stat-card-value">207<span style="font-size:20px; color:var(--copper)"> km²</span></div>
+            <div class="stat-card-sub">Dallas AOI · EPSG:32614</div>
+          </div>
+
+          <div class="panel stat-card">
+            <div class="stat-card-label">Pixels Classified</div>
+            <div class="stat-card-value">23M+</div>
+            <div class="stat-card-sub">per 30m Landsat scene</div>
+          </div>
+
+          <div class="panel stat-card">
+            <div class="stat-card-label">Change Rate</div>
+            <div style="display:flex; align-items:center; gap:20px; margin-top:16px;">
+              <!-- Donut -->
+              <div class="donut-wrap" style="width:120px; height:120px;">
+                <svg viewBox="0 0 120 120" style="transform: rotate(-90deg); width:120px; height:120px;">
+                  <circle cx="60" cy="60" r="46" fill="none" stroke="var(--bg-raised)" stroke-width="12"/>
+                  <circle cx="60" cy="60" r="46" fill="none" stroke="var(--ember)" stroke-width="12"
+                    stroke-dasharray="289" stroke-dashoffset="289"
+                    data-dash-offset="69" style="transition: stroke-dashoffset 1.6s cubic-bezier(0.16,1,0.3,1)"/>
+                </svg>
+                <div class="donut-center">
+                  <div class="donut-pct count-up" data-target="23" style="font-size:28px;">0</div>
+                  <div class="donut-label">%</div>
+                </div>
+              </div>
+              <div>
+                <div style="font-family: var(--font-data); font-size:10px; color:var(--dim); line-height:1.8;">
+                  23.8% of Dallas AOI<br>changed between<br>2015 and 2023
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel stat-card">
+            <div class="stat-card-label">Classifier Accuracy</div>
+            <div class="stat-card-value">RF<span style="font-size:16px; color:var(--dim)"> / 200 trees</span></div>
+            <div class="stat-card-sub">Random Forest · balanced weights</div>
+            <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+              <span class="tech-tag" style="margin:0;">NDVI</span>
+              <span class="tech-tag" style="margin:0;">NDWI</span>
+              <span class="tech-tag" style="margin:0;">MNDWI</span>
+              <span class="tech-tag" style="margin:0;">NDBI</span>
+              <span class="tech-tag" style="margin:0;">BSI</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ════════ MAP SECTION ════════ -->
+  <section class="map-section" id="map">
+    <div class="container">
+      <div style="margin-bottom:40px;">
+        <div class="section-eyebrow">Spatial Output</div>
+        <div class="section-title">Change <em>Detection</em> Map</div>
+        <div class="section-desc">Pixel-wise land use transition raster overlaid on the Dallas AOI. Change codes encoded as T1_class × 10 + T2_class.</div>
+      </div>
+      <div class="map-layout">
+        <div class="panel map-panel">
+          <div class="map-canvas">
+            <div class="map-header">
+              <span class="map-title">Dallas AOI · Change Raster</span>
+              <span class="map-coords">32.6–33.0°N · 97.0–96.5°W</span>
+            </div>
+
+            <!-- SVG map visualization -->
+            <svg viewBox="0 0 640 500" style="width:100%; height:100%; display:block;" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="mapgrid" width="32" height="32" patternUnits="userSpaceOnUse">
+                  <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#2a1510" stroke-width="0.5"/>
+                </pattern>
+                <radialGradient id="glow-urban" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#e05e22" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#e05e22" stop-opacity="0"/>
+                </radialGradient>
+                <radialGradient id="glow-veg" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#7a9e4a" stop-opacity="0.25"/>
+                  <stop offset="100%" stop-color="#7a9e4a" stop-opacity="0"/>
+                </radialGradient>
+              </defs>
+
+              <rect width="640" height="500" fill="#1a0c06"/>
+              <rect width="640" height="500" fill="url(#mapgrid)"/>
+
+              <!-- Land class patches -->
+              <!-- Urban core NW -->
+              <ellipse cx="200" cy="160" rx="130" ry="100" fill="#e05e22" opacity="0.22"/>
+              <!-- Urban expansion 2023 -->
+              <ellipse cx="280" cy="200" rx="90" ry="70" fill="#d4a03a" opacity="0.28"/>
+              <!-- Vegetation belt E -->
+              <ellipse cx="490" cy="280" rx="110" ry="130" fill="#7a9e4a" opacity="0.22"/>
+              <!-- Vegetation patch S -->
+              <ellipse cx="350" cy="410" rx="120" ry="60" fill="#7a9e4a" opacity="0.18"/>
+              <!-- Trinity River corridor -->
+              <path d="M 80 380 Q 150 320 230 350 Q 310 380 380 310 Q 450 240 530 260" stroke="#4a7ea0" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.35"/>
+              <path d="M 80 380 Q 150 320 230 350 Q 310 380 380 310 Q 450 240 530 260" stroke="#6aadcc" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.3"/>
+              <!-- Bare soil patches -->
+              <ellipse cx="420" cy="140" rx="80" ry="55" fill="#b87040" opacity="0.22"/>
+              <ellipse cx="130" cy="390" rx="55" ry="40" fill="#b87040" opacity="0.18"/>
+
+              <!-- Change hotspots (urban expansion) -->
+              <circle cx="260" cy="200" r="28" fill="#d4a03a" opacity="0.5"/>
+              <circle cx="320" cy="160" r="18" fill="#d4a03a" opacity="0.4"/>
+              <circle cx="190" cy="240" r="22" fill="#d4a03a" opacity="0.45"/>
+              <circle cx="370" cy="210" r="14" fill="#d4a03a" opacity="0.4"/>
+              <circle cx="430" cy="180" r="20" fill="#d4a03a" opacity="0.35"/>
+
+              <!-- AOI border -->
+              <rect x="40" y="30" width="560" height="440" stroke="#c44b1a" stroke-width="1.5" fill="none" stroke-dasharray="10 5" opacity="0.5"/>
+
+              <!-- Graticule labels -->
+              <text x="44" y="24" fill="#6b5040" font-family="DM Mono, monospace" font-size="9" opacity="0.8">33.00°N</text>
+              <text x="44" y="477" fill="#6b5040" font-family="DM Mono, monospace" font-size="9" opacity="0.8">32.60°N</text>
+              <text x="44" y="478" fill="#6b5040" font-family="DM Mono, monospace" font-size="9" opacity="0.8" dx="420">96.50°W</text>
+
+              <!-- Pulsing change points -->
+              <circle class="map-dot-ring" cx="260" cy="200" r="8" fill="none" stroke="#d4a03a" stroke-width="1.5" style="animation-delay:0s"/>
+              <circle class="map-dot" cx="260" cy="200" r="5" fill="#d4a03a" style="animation-delay:0s"/>
+              <circle class="map-dot-ring" cx="320" cy="160" r="8" fill="none" stroke="#e05e22" stroke-width="1.5" style="animation-delay:0.8s"/>
+              <circle class="map-dot" cx="320" cy="160" r="5" fill="#e05e22" style="animation-delay:0.8s"/>
+              <circle class="map-dot-ring" cx="430" cy="180" r="8" fill="none" stroke="#d4a03a" stroke-width="1.5" style="animation-delay:1.6s"/>
+              <circle class="map-dot" cx="430" cy="180" r="5" fill="#d4a03a" style="animation-delay:1.6s"/>
+              <circle class="map-dot-ring" cx="190" cy="240" r="8" fill="none" stroke="#e05e22" stroke-width="1.5" style="animation-delay:0.4s"/>
+              <circle class="map-dot" cx="190" cy="240" r="5" fill="#e05e22" style="animation-delay:0.4s"/>
+
+              <!-- North arrow -->
+              <g transform="translate(590,60)">
+                <circle r="18" fill="var(--bg-surface)" stroke="var(--border-bright)" stroke-width="1"/>
+                <text y="-3" text-anchor="middle" fill="#b87333" font-family="DM Mono,monospace" font-size="8" font-weight="500">N</text>
+                <path d="M 0 -14 L 3 -2 L 0 2 L -3 -2 Z" fill="#c44b1a"/>
+                <path d="M 0 14 L 3 2 L 0 -2 L -3 2 Z" fill="#4a3020"/>
+              </g>
+            </svg>
+
+            <div class="map-footer">
+              <div class="map-scale">
+                <div class="scale-bar"></div>
+                5 km
+              </div>
+              <span style="font-family: var(--font-data); font-size:9px; color: var(--dim);">
+                EPSG:32614 · UTM Zone 14N · 30m resolution
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Legend panel -->
+        <div class="panel map-legend-panel">
+          <div>
+            <div class="legend-title">Land Use<br>Classes</div>
+            <div class="legend-sub">Four-class supervised Random Forest classification. Change shown in amber.</div>
+          </div>
+          <div class="class-legend">
+            <div class="class-item" style="border-color: var(--urban)">
+              <div class="class-color" style="background: var(--urban);"></div>
+              <div class="class-info">
+                <div class="class-name">Urban</div>
+                <div class="class-pct">45.7<span style="font-size:14px;">%</span></div>
+                <div class="class-area">94.6 km² in 2023</div>
+              </div>
+            </div>
+            <div class="class-item" style="border-color: var(--veg)">
+              <div class="class-color" style="background: var(--veg);"></div>
+              <div class="class-info">
+                <div class="class-name">Vegetation</div>
+                <div class="class-pct">26.9<span style="font-size:14px;">%</span></div>
+                <div class="class-area">55.7 km² in 2023</div>
+              </div>
+            </div>
+            <div class="class-item" style="border-color: var(--water)">
+              <div class="class-color" style="background: var(--water);"></div>
+              <div class="class-info">
+                <div class="class-name">Water</div>
+                <div class="class-pct">10.2<span style="font-size:14px;">%</span></div>
+                <div class="class-area">21.1 km² in 2023</div>
+              </div>
+            </div>
+            <div class="class-item" style="border-color: var(--soil)">
+              <div class="class-color" style="background: var(--soil);"></div>
+              <div class="class-info">
+                <div class="class-name">Bare Soil</div>
+                <div class="class-pct">17.2<span style="font-size:14px;">%</span></div>
+                <div class="class-area">35.7 km² in 2023</div>
+              </div>
+            </div>
+            <div class="class-item" style="border-color: var(--changed)">
+              <div class="class-color" style="background: var(--changed);"></div>
+              <div class="class-info">
+                <div class="class-name">Changed</div>
+                <div class="class-pct">23.8<span style="font-size:14px;">%</span></div>
+                <div class="class-area">49.3 km² shifted class</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════ PIPELINE ════════ -->
+  <section class="pipeline-section" id="pipeline">
+    <div class="container">
+      <div class="section-eyebrow">Processing Architecture</div>
+      <div class="section-title">GIS <em>Pipeline</em></div>
+      <div class="section-desc">Seven-stage asynchronous processing chain running on Celery workers. Each stage is independently logged and can be retried on failure.</div>
+
+      <div class="pipeline-grid">
+        <div class="pipeline-step">
+          <div class="step-index">01</div>
+          <div class="step-node"><span class="step-icon">⬆</span></div>
+          <div class="step-title">Scene Upload</div>
+          <div class="step-desc">GeoTIFF ingestion via FastAPI streaming endpoint. Up to 500 MB with chunked write.</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-index">02</div>
+          <div class="step-node"><span class="step-icon">⟳</span></div>
+          <div class="step-title">Reproject</div>
+          <div class="step-desc">Reproject to UTM Zone 14N EPSG:32614 at 30m native Landsat resolution.</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-index">03</div>
+          <div class="step-node"><span class="step-icon">✂</span></div>
+          <div class="step-title">Clip & Align</div>
+          <div class="step-desc">Mask to Dallas AOI bbox. Snap T2 to T1 pixel grid for exact coregistration.</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-index">04</div>
+          <div class="step-node"><span class="step-icon">≋</span></div>
+          <div class="step-title">Spectral Indices</div>
+          <div class="step-desc">Compute NDVI, NDWI, MNDWI, NDBI, BSI from six Landsat bands.</div>
+        </div>
+        <div class="pipeline-step">
+          <div class="step-index">05</div>
+          <div class="step-node"><span class="step-icon">◈</span></div>
+          <div class="step-title">Classify</div>
+          <div class="step-desc">Random Forest (200 trees) applied to both scenes. Four output classes.</div>
+        </div>
+      </div>
+
+      <div class="pipeline-grid" style="margin-top: 32px;">
+        <div class="pipeline-step" style="grid-column: 2;">
+          <div class="step-index">06</div>
+          <div class="step-node"><span class="step-icon">Δ</span></div>
+          <div class="step-title">Change Detect</div>
+          <div class="step-desc">Pixel-wise T1×10+T2 encoding produces from-to transition matrix and change raster.</div>
+        </div>
+        <div class="pipeline-step" style="grid-column: 4;">
+          <div class="step-index">07</div>
+          <div class="step-node"><span class="step-icon">↓</span></div>
+          <div class="step-title">Persist & Export</div>
+          <div class="step-desc">Results written to PostGIS. Export GeoTIFF, change PNG, and JSON statistics.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ════════ TRANSITION MATRIX ════════ -->
+  <section class="matrix-section" id="analysis">
+    <div class="container">
+      <div class="matrix-layout">
+        <div>
+          <div class="section-eyebrow">From-To Analysis</div>
+          <div class="section-title" style="font-size:clamp(32px,5vw,56px);">Transition<br><em>Matrix</em></div>
+          <div class="section-desc" style="margin-bottom:32px;">
+            Class-to-class pixel transition counts for 2015→2023. Diagonal cells represent stable land use. Off-diagonal cells show net conversion.
+          </div>
+          <div class="matrix-table-wrap">
+            <table class="matrix-table">
+              <thead>
+                <tr>
+                  <th>2015 → 2023</th>
+                  <th>Urban</th>
+                  <th>Vegeta.</th>
+                  <th>Water</th>
+                  <th>Bare S.</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Urban</td>
+                  <td><span class="heat-cell cell-diag" style="background:rgba(212,150,58,0.15)">71,204</span></td>
+                  <td><span class="heat-cell" style="background:rgba(122,158,74,0.08)">1,203</span></td>
+                  <td><span class="heat-cell">84</span></td>
+                  <td><span class="heat-cell">2,100</span></td>
+                </tr>
+                <tr>
+                  <td>Vegetation</td>
+                  <td><span class="heat-cell cell-high" style="background:rgba(224,94,34,0.18)">14,820</span></td>
+                  <td><span class="heat-cell cell-diag" style="background:rgba(212,150,58,0.15)">50,340</span></td>
+                  <td><span class="heat-cell">320</span></td>
+                  <td><span class="heat-cell">3,660</span></td>
+                </tr>
+                <tr>
+                  <td>Water</td>
+                  <td><span class="heat-cell" style="background:rgba(224,94,34,0.06)">420</span></td>
+                  <td><span class="heat-cell">1,100</span></td>
+                  <td><span class="heat-cell cell-diag" style="background:rgba(212,150,58,0.15)">18,240</span></td>
+                  <td><span class="heat-cell">140</span></td>
+                </tr>
+                <tr>
+                  <td>Bare Soil</td>
+                  <td><span class="heat-cell cell-high" style="background:rgba(224,94,34,0.12)">5,640</span></td>
+                  <td><span class="heat-cell">2,880</span></td>
+                  <td><span class="heat-cell">210</span></td>
+                  <td><span class="heat-cell cell-diag" style="background:rgba(212,150,58,0.15)">29,070</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:16px; font-family: var(--font-data); font-size:10px; color:var(--dim);">
+            ◆ Gold diagonal = stable class · Red cells = urbanisation transitions
+          </div>
+        </div>
+
+        <!-- Donut charts column -->
+        <div style="display:flex; flex-direction:column; gap:24px;">
+          <div class="section-eyebrow" style="margin-bottom:0;">Top Transitions</div>
+
+          <div class="panel" style="padding:24px;">
+            <div style="font-family: var(--font-data); font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:var(--dim); margin-bottom:12px;">Vegetation → Urban</div>
+            <div style="display:flex; align-items:center; gap:16px;">
+              <svg viewBox="0 0 80 80" style="width:80px; height:80px; transform:rotate(-90deg); flex-shrink:0;">
+                <circle cx="40" cy="40" r="30" fill="none" stroke="var(--bg-raised)" stroke-width="8"/>
+                <circle cx="40" cy="40" r="30" fill="none" stroke="var(--ember)" stroke-width="8"
+                  stroke-dasharray="188.5" stroke-dashoffset="188.5" data-dash-offset="72"/>
+              </svg>
+              <div>
+                <div style="font-family:var(--font-display); font-size:32px; color:var(--ember); line-height:1;">14,820</div>
+                <div style="font-family:var(--font-data); font-size:10px; color:var(--dim);">pixels converted<br>21→ code</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="padding:24px;">
+            <div style="font-family: var(--font-data); font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:var(--dim); margin-bottom:12px;">Bare Soil → Urban</div>
+            <div style="display:flex; align-items:center; gap:16px;">
+              <svg viewBox="0 0 80 80" style="width:80px; height:80px; transform:rotate(-90deg); flex-shrink:0;">
+                <circle cx="40" cy="40" r="30" fill="none" stroke="var(--bg-raised)" stroke-width="8"/>
+                <circle cx="40" cy="40" r="30" fill="none" stroke="var(--copper)" stroke-width="8"
+                  stroke-dasharray="188.5" stroke-dashoffset="188.5" data-dash-offset="83"/>
+              </svg>
+              <div>
+                <div style="font-family:var(--font-display); font-size:32px; color:var(--copper); line-height:1;">5,640</div>
+                <div style="font-family:var(--font-data); font-size:10px; color:var(--dim);">pixels converted<br>41→ code</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel" style="padding:24px;">
+            <div style="font-family: var(--font-data); font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:var(--dim); margin-bottom:12px;">Spectral Features Used</div>
+            <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <div style="flex:1; font-family:var(--font-data); font-size:10px; color:var(--ash);">NDVI</div>
+                <div style="flex:3; height:6px; background:var(--bg-raised); border-radius:1px; overflow:hidden;">
+                  <div class="bar-fill" style="background:var(--veg);" data-width="82"></div>
+                </div>
+                <div style="font-family:var(--font-data); font-size:9px; color:var(--dim); width:28px; text-align:right;">0.82</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <div style="flex:1; font-family:var(--font-data); font-size:10px; color:var(--ash);">MNDWI</div>
+                <div style="flex:3; height:6px; background:var(--bg-raised); border-radius:1px; overflow:hidden;">
+                  <div class="bar-fill" style="background:var(--water);" data-width="71"></div>
+                </div>
+                <div style="font-family:var(--font-data); font-size:9px; color:var(--dim); width:28px; text-align:right;">0.71</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <div style="flex:1; font-family:var(--font-data); font-size:10px; color:var(--ash);">NDBI</div>
+                <div style="flex:3; height:6px; background:var(--bg-raised); border-radius:1px; overflow:hidden;">
+                  <div class="bar-fill" style="background:var(--urban);" data-width="68"></div>
+                </div>
+                <div style="font-family:var(--font-data); font-size:9px; color:var(--dim); width:28px; text-align:right;">0.68</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <div style="flex:1; font-family:var(--font-data); font-size:10px; color:var(--ash);">BSI</div>
+                <div style="flex:3; height:6px; background:var(--bg-raised); border-radius:1px; overflow:hidden;">
+                  <div class="bar-fill" style="background:var(--soil);" data-width="55"></div>
+                </div>
+                <div style="font-family:var(--font-data); font-size:9px; color:var(--dim); width:28px; text-align:right;">0.55</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <div style="flex:1; font-family:var(--font-data); font-size:10px; color:var(--ash);">NDWI</div>
+                <div style="flex:3; height:6px; background:var(--bg-raised); border-radius:1px; overflow:hidden;">
+                  <div class="bar-fill" style="background:var(--copper);" data-width="49"></div>
+                </div>
+                <div style="font-family:var(--font-data); font-size:9px; color:var(--dim); width:28px; text-align:right;">0.49</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════ TECH STACK ════════ -->
+  <section class="tech-section">
+    <div class="container">
+      <div class="section-eyebrow">Engineering Stack</div>
+      <div class="section-title">Built With <em>Precision</em></div>
+      <div class="tech-grid">
+        <div class="tech-card">
+          <span class="tech-card-icon">⚡</span>
+          <div class="tech-card-name">FastAPI + Uvicorn</div>
+          <div class="tech-card-desc">Async-native Python REST API with Pydantic v2 validation, auto OpenAPI docs, and Prometheus metrics endpoint.</div>
+          <span class="tech-tag">Python 3.11</span>
+        </div>
+        <div class="tech-card">
+          <span class="tech-card-icon">🗺</span>
+          <div class="tech-card-name">GDAL · Rasterio</div>
+          <div class="tech-card-desc">Industry-standard geospatial raster processing. Reproject, clip, align, and normalise Landsat 8/9 multi-band GeoTIFFs.</div>
+          <span class="tech-tag">GDAL 3.6</span>
+        </div>
+        <div class="tech-card">
+          <span class="tech-card-icon">🌲</span>
+          <div class="tech-card-name">Random Forest</div>
+          <div class="tech-card-desc">200-tree scikit-learn classifier trained on spectral index features. Balanced class weights for minority water class.</div>
+          <span class="tech-tag">scikit-learn 1.4</span>
+        </div>
+        <div class="tech-card">
+          <span class="tech-card-icon">🐘</span>
+          <div class="tech-card-name">PostGIS 3.3</div>
+          <div class="tech-card-desc">PostgreSQL with spatial extensions. Stores scene extents as POLYGON geometries. Enables spatial intersection queries.</div>
+          <span class="tech-tag">EPSG:32614</span>
+        </div>
+        <div class="tech-card">
+          <span class="tech-card-icon">⚙</span>
+          <div class="tech-card-name">Celery + Redis</div>
+          <div class="tech-card-desc">Async task queue decouples heavy GIS processing from the HTTP lifecycle. Workers process one 500 MB raster at a time.</div>
+          <span class="tech-tag">Celery 5.4</span>
+        </div>
+        <div class="tech-card">
+          <span class="tech-card-icon">▲</span>
+          <div class="tech-card-name">Next.js 14</div>
+          <div class="tech-card-desc">TypeScript frontend with Leaflet map overlays, TanStack Query polling, and Recharts land use visualisations.</div>
+          <span class="tech-tag">React 18 · TS</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ════════ FOOTER ════════ -->
+  <footer class="footer">
+    <div>
+      <div class="footer-brand">DallasLandScan</div>
+      <div style="font-family: var(--font-data); font-size:10px; color:var(--dim); margin-top:4px;">
+        Land Use Change Detection · Dallas, Texas
+      </div>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/jermainewright/dallas-landuse-change-detection" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/jermainewright/dallas-landuse-change-detection/blob/main/docs/architecture.md" class="footer-link" target="_blank" rel="noopener">Docs</a>
+    </div>
+    <div class="footer-meta">
+      FastAPI · GDAL · PostGIS · Celery · Next.js<br>
+      EPSG:32614 · UTM Zone 14N · 30m resolution
+    </div>
+  </footer>
+
+</div><!-- end page-wrap -->
+
+<script>
+// ─── INTERSECTION OBSERVER: trigger bar animations & counter ────────────────
+const IO = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    const el = entry.target;
+
+    // Bar fills
+    if (el.classList.contains('bar-fill')) {
+      const w = el.dataset.width;
+      setTimeout(() => { el.style.width = w + '%'; }, 100);
+      IO.unobserve(el);
+    }
+    // Pipeline steps
+    if (el.classList.contains('pipeline-step')) {
+      el.classList.add('visible');
+      IO.unobserve(el);
+    }
+    // Count-up numbers
+    if (el.classList.contains('count-up')) {
+      animateCount(el, parseInt(el.dataset.target, 10));
+      IO.unobserve(el);
+    }
+    // Donut rings
+    if (el.tagName === 'circle' && el.dataset.dashOffset !== undefined) {
+      const circ = 2 * Math.PI * parseFloat(el.getAttribute('r') || '46');
+      const pct  = parseFloat(el.dataset.dashOffset) / 100;
+      const offset = circ * (1 - pct);
+      setTimeout(() => { el.style.strokeDashoffset = offset; }, 200);
+      IO.unobserve(el);
+    }
+  });
+}, { threshold: 0.15 });
+
+// Observe all animatable elements
+document.querySelectorAll('.bar-fill, .pipeline-step, .count-up').forEach(el => IO.observe(el));
+document.querySelectorAll('circle[data-dash-offset]').forEach(el => IO.observe(el));
+
+// ─── COUNT-UP ANIMATION ──────────────────────────────────────────────────────
+function animateCount(el, target) {
+  const duration = 1600;
+  const start = performance.now();
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+  function step(now) {
+    const t = Math.min((now - start) / duration, 1);
+    el.textContent = Math.round(easeOut(t) * target);
+    if (t < 1) requestAnimationFrame(step);
+    else el.textContent = target;
+  }
+  requestAnimationFrame(step);
+}
+
+// ─── STAGGER PIPELINE STEPS ──────────────────────────────────────────────────
+document.querySelectorAll('.pipeline-step').forEach((step, i) => {
+  step.style.transitionDelay = (i * 0.12) + 's';
+});
+
+// ─── DONUT INITIAL STATE (set dashoffset to full before animation) ───────────
+document.querySelectorAll('circle[data-dash-offset]').forEach(circle => {
+  const r = parseFloat(circle.getAttribute('r') || '30');
+  const circ = 2 * Math.PI * r;
+  circle.setAttribute('stroke-dasharray', circ.toString());
+  circle.setAttribute('stroke-dashoffset', circ.toString());
+});
+
+// ─── PARALLAX TOPO BACKGROUND ────────────────────────────────────────────────
+const topo = document.querySelector('.topo-bg');
+if (topo) {
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY * 0.08;
+    topo.style.transform = `translateY(${y}px)`;
+  }, { passive: true });
+}
+
+// ─── CURSOR CROSSHAIR DOT ────────────────────────────────────────────────────
+const dot = document.createElement('div');
+dot.style.cssText = `
+  position: fixed; pointer-events: none; z-index: 9999;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ember); mix-blend-mode: screen;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.2s ease;
+`;
+document.body.appendChild(dot);
+
+const ring = document.createElement('div');
+ring.style.cssText = `
+  position: fixed; pointer-events: none; z-index: 9998;
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid rgba(196,75,26,0.4);
+  transform: translate(-50%, -50%);
+  transition: transform 0.12s ease, width 0.2s ease, height 0.2s ease;
+`;
+document.body.appendChild(ring);
+
+let mx = -100, my = -100;
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  dot.style.left = mx + 'px'; dot.style.top = my + 'px';
+  ring.style.left = mx + 'px'; ring.style.top = my + 'px';
+});
+document.querySelectorAll('a, button, .class-item, .tech-card, .metric-cell').forEach(el => {
+  el.addEventListener('mouseenter', () => {
+    ring.style.width = '48px'; ring.style.height = '48px';
+    ring.style.borderColor = 'rgba(224,94,34,0.7)';
+  });
+  el.addEventListener('mouseleave', () => {
+    ring.style.width = '32px'; ring.style.height = '32px';
+    ring.style.borderColor = 'rgba(196,75,26,0.4)';
+  });
+});
+
+// ─── SCROLL REVEAL for class items ──────────────────────────────────────────
+const revealIO = new IntersectionObserver((entries) => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      entry.target.style.transition = `opacity 0.5s ease ${i * 0.08}s, transform 0.5s ease ${i * 0.08}s`;
+      entry.target.style.opacity = '1';
+      entry.target.style.transform = 'translateX(0)';
+      revealIO.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.class-item, .tech-card, .stat-card').forEach(el => {
+  el.style.opacity = '0';
+  el.style.transform = 'translateX(-12px)';
+  revealIO.observe(el);
+});
+</script>
+</body>
+</html>
